@@ -5,8 +5,22 @@ use std::path::Path;
 use rocket::http::ContentType;
 use rocket::fs::NamedFile;
 
+#[get("/")]
+async fn index() -> Result<NamedFile> {
+  let path = Path::new("frontend").join("index.html");
+  let named_file = NamedFile::open(path).await?;
+  Ok(named_file)
+}
+
+#[get("/main.js")]
+async fn js() -> Result<NamedFile> {
+  let path = Path::new("frontend").join("main.js");
+  let named_file = NamedFile::open(path).await?;
+  Ok(named_file)
+}
+
 #[get("/model/<model_id>")]
-async fn index(model_id: &str) -> Result<(ContentType, NamedFile)> {
+async fn get_model(model_id: &str) -> Result<(ContentType, NamedFile)> {
   let path = Path::new("digimons").join(model_id).join("out.gltf");
   let custom = ContentType::new("model", "gtlf+json");
   let named_file = NamedFile::open(path).await?;
@@ -15,5 +29,5 @@ async fn index(model_id: &str) -> Result<(ContentType, NamedFile)> {
 
 #[launch]
 fn rocket() -> _ {
-  rocket::build().mount("/", routes![index])
+  rocket::build().mount("/", routes![index, js, get_model])
 }
