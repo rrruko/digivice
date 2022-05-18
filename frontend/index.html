@@ -1,16 +1,92 @@
+<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <title>Main</title>
   <script src="main.js"></script>
+  <style>
+    body { margin: 0; }
+  </style>
 </head>
 
 <body>
+  <!--
   <div id="myapp"></div>
   <script>
   var app = Elm.Main.init({
     node: document.getElementById('myapp')
   });
+  app.ports.getModel.subscribe(function(name) {
+    if (!gltfLoader) {
+      alert("GLTF loader not yet ready");
+      return;
+    }
+    fetch('model/' + name).then(response => {
+      gltfLoader.parse(
+        response,
+        null,
+        function (loadedAsset) {
+          scene.add(loadedAsset.scene);
+        },
+        function (error) {
+          alert(error);
+        }
+      );
+    });
+  });
+  </script>
+  -->
+  <script async src="https://ga.jspm.io/npm:es-module-shims@1.5.5/dist/es-module-shims.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.140.2/build/three.module.js"
+      }
+    }
+  </script>
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from '/vendor/GLTFLoader.js';
+    var scene;
+    doStuff();
+    function doStuff() {
+      scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000);
+      var gltfLoader;
+      gltfLoader = new GLTFLoader();
+      fetch('model/003AGUM').then(response => {
+        gltfLoader.parse(
+          response,
+          null,
+          function (loadedAsset) {
+            console.log("OK!!!");
+            scene.add(loadedAsset.scene);
+          },
+          function (error) {
+            alert(error);
+          }
+        );
+      });
+      const renderer = new THREE.WebGLRenderer();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+      const geometry = new THREE.BoxGeometry();
+      const material = new THREE.MeshBasicMaterial({color : 0x00ff00});
+      const cube = new THREE.Mesh(geometry, material);
+      scene.add(cube);
+      camera.position.z = 5;
+      function animate() {
+        requestAnimationFrame(animate);
+        cube.rotation.x += 0.01;
+        cube.rotation.y += 0.01;
+        renderer.render(scene, camera);
+      }
+      animate();
+    }
   </script>
 </body>
 </html>
