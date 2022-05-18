@@ -48,6 +48,8 @@
     import * as THREE from 'three';
     import { GLTFLoader } from '/vendor/GLTFLoader.js';
     var scene;
+    var assetMixer;
+    var assetClips;
     doStuff();
     function doStuff() {
       scene = new THREE.Scene();
@@ -68,6 +70,9 @@
             console.log("OK!!!");
             console.log(loadedAsset);
             scene.add(loadedAsset.scene);
+            assetMixer = new THREE.AnimationMixer(loadedAsset.scene);
+            assetClips = loadedAsset.animations;
+            assetMixer.clipAction(assetClips[0]).play();
           },
           function (error) {
             alert(error);
@@ -83,11 +88,16 @@
       const light = new THREE.AmbientLight(0x404040);
       scene.add(light);
       //scene.add(cube);
-      camera.position.z = 1;
+      camera.position.z = -1;
+      camera.position.y = 0.5;
+      camera.position.x = 0.5;
+      camera.lookAt(0, 0, 0);
+      const clock = new THREE.Clock();
       function animate() {
         requestAnimationFrame(animate);
         cube.rotation.x += 0.01;
         cube.rotation.y += 0.01;
+        if (assetMixer) assetMixer.update(clock.getDelta());
         renderer.render(scene, camera);
       }
       animate();
