@@ -11,5 +11,6 @@ in
     nativeBuildInputs = [
       nixpkgs.cargo
       nixpkgs.rustc
+      nixpkgs.elmPackages.elm
     ];
   }
