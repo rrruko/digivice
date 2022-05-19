@@ -11,7 +11,7 @@ main = Browser.element
   , subscriptions = subscriptions
   }
 
-port getModel : String -> Cmd msg
+port getModel : Int -> Cmd msg
 
 type alias Model = 
   { number : Int
@@ -20,7 +20,7 @@ type alias Model =
 init : () -> (Model, Cmd Msg)
 init flags =
   ( { number = 0 }
-  , Cmd.none
+  , getModel 0
   )
 
 type Msg = Increment | Decrement
@@ -30,11 +30,11 @@ update msg model =
   case msg of
     Increment ->
       ( { model | number = model.number + 1 }
-      , getModel "inc"
+      , getModel (model.number + 1)
       )
     Decrement ->
       ( { model | number = model.number - 1 }
-      , getModel "dec"
+      , getModel (model.number - 1)
       )
 
 subscriptions : Model -> Sub Msg

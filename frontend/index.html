@@ -12,29 +12,8 @@
 <body>
   <div id="myapp"></div>
   <script>
-  /*
-  let app = Elm.Main.init({
-    node: document.getElementById('myapp')
-  });
-  app.ports.getModel.subscribe(function(name) {
-    if (!gltfLoader) {
-      alert("GLTF loader not yet ready");
-      return;
-    }
-    fetch('model/' + name).then(response => {
-      gltfLoader.parse(
-        response,
-        null,
-        function (loadedAsset) {
-          //scene.add(loadedAsset.scene);
-        },
-        function (error) {
-          alert(error);
-        }
-      );
-    });
-  });
-  */
+  let gltfLoader;
+  let loadModel;
   </script>
   <script async src="https://ga.jspm.io/npm:es-module-shims@1.5.5/dist/es-module-shims.js"></script>
   <script type="importmap">
@@ -50,6 +29,7 @@
     let scene;
     let assetMixer;
     let assetClips;
+    let mon;
     doStuff();
     function doStuff() {
       scene = new THREE.Scene();
@@ -58,27 +38,32 @@
         window.innerWidth / window.innerHeight,
         0.1,
         1000);
-      let gltfLoader;
       gltfLoader = new GLTFLoader();
-      fetch('model/137FLYM').then(response => {
-        return response.arrayBuffer();
-      }).then(function(buffer) {
-        gltfLoader.parse(
-          buffer,
-          null,
-          function (loadedAsset) {
-            console.log("OK!!!");
-            console.log(loadedAsset);
-            scene.add(loadedAsset.scene);
-            assetMixer = new THREE.AnimationMixer(loadedAsset.scene);
-            assetClips = loadedAsset.animations;
-            assetMixer.clipAction(assetClips[0]).play();
-          },
-          function (error) {
-            alert(error);
-          }
-        );
-      });
+      loadModel = function(n) {
+        fetch('model/' + n).then(response => {
+          return response.arrayBuffer();
+        }).then(function(buffer) {
+          gltfLoader.parse(
+            buffer,
+            null,
+            function (loadedAsset) {
+              console.log("OK!!!");
+              console.log(loadedAsset);
+              if (mon) {
+                scene.remove(mon);
+              }
+              mon = loadedAsset.scene;
+              scene.add(mon);
+              assetMixer = new THREE.AnimationMixer(loadedAsset.scene);
+              assetClips = loadedAsset.animations;
+              assetMixer.clipAction(assetClips[0]).play();
+            },
+            function (error) {
+              alert(error);
+            }
+          );
+        });
+      }
       const renderer = new THREE.WebGLRenderer();
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
@@ -104,6 +89,20 @@
       }
       animate();
     }
+    let app = Elm.Main.init({
+      node: document.getElementById('myapp')
+    });
+    app.ports.getModel.subscribe(function(ix) {
+      if (!gltfLoader) {
+        alert("GLTF loader not yet ready");
+        return;
+      }
+      if (!loadModel) {
+        alert("loadModel not yet ready");
+        return;
+      }
+      loadModel(ix);
+    });
   </script>
 </body>
 </html>

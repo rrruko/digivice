@@ -6,6 +6,7 @@ use std::io::Result as IOResult;
 use std::path::Path;
 use rocket::http::ContentType;
 use rocket::fs::NamedFile;
+use rocket::State;
 use std::fs;
 
 #[get("/")]
@@ -36,8 +37,9 @@ async fn gltf_loader() -> IOResult<NamedFile> {
   Ok(named_file)
 }
 
-#[get("/model/<model_id>")]
-async fn get_model(model_id: &str) -> IOResult<(ContentType, NamedFile)> {
+#[get("/model/<ix>")]
+async fn get_model(ix: usize, models: &State<ModelList>) -> IOResult<(ContentType, NamedFile)> {
+  let model_id = &models.models[ix % models.models.len()];
   let path = Path::new("digimons").join(model_id).join("out.gltf");
   let custom = ContentType::new("model", "gtlf+json");
   let named_file = NamedFile::open(path).await?;
@@ -53,16 +55,25 @@ fn list_digimons<'a>() -> Result<Vec<String>, String> {
          Ok(entry) => entry
            .file_name()
            .into_string()
-           .map_err(|_| String::from("Uh oh")),
+           .map_err(|_| String::from("Couldn't convert OsString to String")),
          Err(bad) => Err(format!("{:?}", bad))
        }
     })
     .collect()
 }
 
+struct ModelList {
+  models: Vec<String>
+}
+
 #[launch]
 fn rocket() -> _ {
-  list_digimons();
-  rocket::build()
-    .mount("/", routes![index, js, three, gltf_loader, get_model])
+  match list_digimons() {
+    Ok(models) =>
+      rocket::build()
+        .mount("/", routes![index, js, three, gltf_loader, get_model])
+        .manage(ModelList { models }),
+    Err(error) =>
+      panic!("Failed to enumerate models: {}", error)
+  }
 }
