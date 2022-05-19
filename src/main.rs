@@ -1,6 +1,5 @@
 #[macro_use] extern crate rocket;
 
-use std::ffi::OsString;
 use std::result::Result;
 use std::io::Result as IOResult;
 use std::path::Path;
@@ -46,7 +45,7 @@ async fn get_model(ix: usize, models: &State<ModelList>) -> IOResult<(ContentTyp
   Ok((custom, named_file))
 }
 
-fn list_digimons<'a>() -> Result<Vec<String>, String> {
+fn list_digimons<'a>() -> Result<ModelList, String> {
   let read_dir = fs::read_dir(Path::new("digimons"))
     .map_err(|e| format!("{:?}", e))?;
   read_dir
@@ -59,7 +58,8 @@ fn list_digimons<'a>() -> Result<Vec<String>, String> {
          Err(bad) => Err(format!("{:?}", bad))
        }
     })
-    .collect()
+    .collect::<Result<Vec<String>, String>>()
+    .map(|models| ModelList { models })
 }
 
 struct ModelList {
@@ -72,7 +72,7 @@ fn rocket() -> _ {
     Ok(models) =>
       rocket::build()
         .mount("/", routes![index, js, three, gltf_loader, get_model])
-        .manage(ModelList { models }),
+        .manage(models),
     Err(error) =>
       panic!("Failed to enumerate models: {}", error)
   }
