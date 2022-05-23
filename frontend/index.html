@@ -41,7 +41,7 @@
         1000);
       gltfLoader = new GLTFLoader();
       loadModel = function(n) {
-        fetch('model/' + n).then(response => {
+        fetch('model/' + n, { cache: "force-cache" }).then(response => {
           return response.arrayBuffer();
         }).then(function(buffer) {
           gltfLoader.parse(
