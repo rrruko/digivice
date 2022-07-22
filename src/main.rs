@@ -6,35 +6,8 @@ use std::path::Path;
 use rocket::http::ContentType;
 use rocket::fs::NamedFile;
 use rocket::State;
+use rocket::fs::FileServer;
 use std::fs;
-
-#[get("/")]
-async fn index() -> IOResult<NamedFile> {
-  let path = Path::new("frontend").join("index.html");
-  let named_file = NamedFile::open(path).await?;
-  Ok(named_file)
-}
-
-#[get("/main.js")]
-async fn js() -> IOResult<NamedFile> {
-  let path = Path::new("frontend").join("main.js");
-  let named_file = NamedFile::open(path).await?;
-  Ok(named_file)
-}
-
-#[get("/vendor/three.js")]
-async fn three() -> IOResult<NamedFile> {
-  let path = Path::new("frontend").join("vendor").join("three.js");
-  let named_file = NamedFile::open(path).await?;
-  Ok(named_file)
-}
-
-#[get("/vendor/GLTFLoader.js")]
-async fn gltf_loader() -> IOResult<NamedFile> {
-  let path = Path::new("frontend").join("vendor").join("GLTFLoader.js");
-  let named_file = NamedFile::open(path).await?;
-  Ok(named_file)
-}
 
 #[get("/model/<ix>")]
 async fn get_model(ix: usize, models: &State<ModelList>) -> IOResult<(ContentType, NamedFile)> {
@@ -71,7 +44,8 @@ fn rocket() -> _ {
   match list_digimons() {
     Ok(models) =>
       rocket::build()
-        .mount("/", routes![index, js, three, gltf_loader, get_model])
+        .mount("/", routes![get_model])
+        .mount("/", FileServer::from("frontend"))
         .manage(models),
     Err(error) =>
       panic!("Failed to enumerate models: {}", error)
