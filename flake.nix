@@ -26,6 +26,14 @@
             '';
           };
 
+          packages.digimons = pkgs.stdenv.mkDerivation {
+            name = "digimons";
+            src = ./digimons;
+            installPhase = ''
+              cp -r $src $out
+            '';
+          };
+
           # `nix run`
           apps.digivice = flake-utils.lib.mkApp {
             drv = packages.digivice;
