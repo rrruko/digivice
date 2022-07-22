@@ -5,6 +5,8 @@ use std::io::Result as IOResult;
 use std::path::Path;
 use rocket::http::ContentType;
 use rocket::fs::NamedFile;
+use rocket::Rocket;
+use rocket::Build;
 use rocket::State;
 use rocket::fs::FileServer;
 use std::fs;
@@ -18,8 +20,8 @@ async fn get_model(ix: usize, models: &State<ModelList>) -> IOResult<(ContentTyp
   Ok((custom, named_file))
 }
 
-fn list_digimons<'a>() -> Result<ModelList, String> {
-  let read_dir = fs::read_dir(Path::new("digimons"))
+fn list_digimons<'a>(digimons_path: &Path) -> Result<ModelList, String> {
+  let read_dir = fs::read_dir(digimons_path)
     .map_err(|e| format!("{:?}", e))?;
   read_dir
     .map(|x| {
@@ -39,15 +41,26 @@ struct ModelList {
   models: Vec<String>
 }
 
-#[launch]
-fn rocket() -> _ {
-  match list_digimons() {
+fn launch_app(digimons_path: &Path, frontend_path: &Path) -> Rocket<Build> {
+  match list_digimons(digimons_path) {
     Ok(models) =>
       rocket::build()
         .mount("/", routes![get_model])
-        .mount("/", FileServer::from("frontend"))
+        .mount("/", FileServer::from(frontend_path))
         .manage(models),
     Err(error) =>
       panic!("Failed to enumerate models: {}", error)
+  }
+}
+
+#[launch]
+fn rocket() -> _ {
+  let args: Vec<String> = std::env::args().collect();
+  match &args[..] {
+    [_, digimons_path, frontend_path] =>
+      launch_app(
+        Path::new(&digimons_path),
+        Path::new(&frontend_path)),
+    _ => panic!("Usage: digivice <DIGIMONS_PATH> <FRONTEND_PATH>")
   }
 }
