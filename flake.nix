@@ -16,7 +16,7 @@
             pname = "digivice";
             root = ./.;
           };
-          defaultPackage = packages.digivice;
+          packages.default = packages.digivice;
 
           packages.frontend = pkgs.stdenv.mkDerivation {
             name = "frontend";
