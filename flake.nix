@@ -18,13 +18,21 @@
           };
           packages.default = packages.digivice;
 
-          packages.frontend = pkgs.stdenv.mkDerivation {
-            name = "frontend";
-            src = ./frontend;
-            installPhase = ''
-              cp -r $src $out
-            '';
-          };
+          packages.frontend =
+            let
+              fe-derivation = import ./frontend/frontend.nix { inherit pkgs; };
+            in
+              pkgs.stdenv.mkDerivation {
+                name = "frontend";
+                src = ./frontend;
+                buildInputs = with pkgs; [ elmPackages.elm ];
+                installPhase = ''
+                  mkdir result
+                  cp -r $src/* result
+                  cp ${fe-derivation}/Main.js result/main.js
+                  cp -r result $out
+                '';
+              };
 
           packages.digimons = pkgs.stdenv.mkDerivation {
             name = "digimons";
