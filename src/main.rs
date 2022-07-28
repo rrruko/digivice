@@ -2,7 +2,7 @@
 
 use std::result::Result;
 use std::io::Result as IOResult;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use rocket::http::ContentType;
 use rocket::fs::NamedFile;
 use rocket::Rocket;
@@ -12,9 +12,9 @@ use rocket::fs::FileServer;
 use std::fs;
 
 #[get("/model/<ix>")]
-async fn get_model(ix: usize, models: &State<ModelList>) -> IOResult<(ContentType, NamedFile)> {
+async fn get_model(ix: usize, models: &State<ModelList>, digimons_path: &State<PathBuf>) -> IOResult<(ContentType, NamedFile)> {
   let model_id = &models.models[ix % models.models.len()];
-  let path = Path::new("digimons").join(model_id).join("out.gltf");
+  let path = digimons_path.join(model_id).join("out.gltf");
   let custom = ContentType::new("model", "gtlf+json");
   let named_file = NamedFile::open(path).await?;
   Ok((custom, named_file))
@@ -47,7 +47,8 @@ fn launch_app(digimons_path: &Path, frontend_path: &Path) -> Rocket<Build> {
       rocket::build()
         .mount("/", routes![get_model])
         .mount("/", FileServer::from(frontend_path))
-        .manage(models),
+        .manage(models)
+        .manage(digimons_path.to_path_buf()),
     Err(error) =>
       panic!("Failed to enumerate models: {}", error)
   }
