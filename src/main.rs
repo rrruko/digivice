@@ -23,7 +23,7 @@ async fn get_model(ix: usize, models: &State<ModelList>, digimons_path: &State<P
 fn list_digimons<'a>(digimons_path: &Path) -> Result<ModelList, String> {
   let read_dir = fs::read_dir(digimons_path)
     .map_err(|e| format!("{:?}", e))?;
-  read_dir
+  let mut models = read_dir
     .map(|x| {
        match x {
          Ok(entry) => entry
@@ -33,8 +33,9 @@ fn list_digimons<'a>(digimons_path: &Path) -> Result<ModelList, String> {
          Err(bad) => Err(format!("{:?}", bad))
        }
     })
-    .collect::<Result<Vec<String>, String>>()
-    .map(|models| ModelList { models })
+    .collect::<Result<Vec<String>, String>>()?;
+  models.sort();
+  Ok(ModelList { models })
 }
 
 struct ModelList {
