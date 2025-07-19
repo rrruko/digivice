@@ -31,6 +31,37 @@
     let assetClips;
     let mon;
     let r;
+    let offscreenCanvas = new OffscreenCanvas(1024, 1024);
+    //let offscreenCanvas = document.getElementById("badcanvas");
+    let offscreenCanvasCtx = offscreenCanvas.getContext("2d");
+    let gotTexture = false;
+    let canvasTexture;
+    let blinks;
+    function getTexture(gltfScene) {
+      gotTexture = false;
+      gltfScene.traverse(function(child) {
+        if (child.isMesh) {
+          let material = child.material;
+          if (!gotTexture) {
+            let imageBitmap = material.map.source.data;
+            offscreenCanvasCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+            offscreenCanvasCtx.drawImage(imageBitmap, 0, 0);
+            gotTexture = true;
+          }
+        }
+      })
+      canvasTexture = new THREE.CanvasTexture(offscreenCanvas);
+      canvasTexture.flipY = false;
+      canvasTexture.magFilter = 1003;
+      canvasTexture.minFilter = 1003;
+      console.log("canvasTexture");
+      console.log(canvasTexture);
+      gltfScene.traverse(function(child) {
+        if (child.isMesh) {
+          child.material.map = canvasTexture;
+        }
+      })
+    }
     doStuff();
     function doStuff() {
       scene = new THREE.Scene();
@@ -54,7 +85,10 @@
                 scene.remove(mon);
               }
               mon = loadedAsset.scene;
+              console.log(loadedAsset.userData);
+              blinks = loadedAsset.userData.blink;
               scene.add(mon);
+              getTexture(mon);
               assetMixer = new THREE.AnimationMixer(loadedAsset.scene);
               assetClips = loadedAsset.animations;
               assetMixer.clipAction(assetClips[0]).play();
@@ -66,27 +100,71 @@
           );
         });
       }
-      const renderer = new THREE.WebGLRenderer();
+      const renderer = new THREE.WebGLRenderer({
+        alpha: true,
+        //outputEncoding: THREE.sRGBEncoding
+      });
       renderer.setSize(window.innerWidth, window.innerHeight);
+
+      renderer.gammaOutput = true;
+      renderer.gammaFactor = 2.2;
+
       document.body.appendChild(renderer.domElement);
       const geometry = new THREE.BoxGeometry();
       const material = new THREE.MeshBasicMaterial({color : 0x00ff00});
       const cube = new THREE.Mesh(geometry, material);
       const light = new THREE.AmbientLight(0xffffff);
       scene.add(light);
-      camera.position.y = 0.3;
+      camera.position.y = 0.4;
       const clock = new THREE.Clock();
+      let src_x;
+      let src_y;
       function animate() {
         let delta = clock.getDelta();
-        requestAnimationFrame(animate);
-        camera.position.z = -Math.cos(r);
-        camera.position.x = -Math.sin(r);
-        camera.lookAt(0, 0.15, 0);
+        camera.position.z = -Math.cos(r*0.6);
+        camera.position.x = -Math.sin(r*0.6);
+        camera.lookAt(0, 0.2, 0);
         r += delta;
         cube.rotation.x += 0.01;
         cube.rotation.y += 0.01;
         if (assetMixer) assetMixer.update(delta);
         renderer.render(scene, camera);
+        if (r && blinks) {
+          for (let b = 0; b < blinks.length; b++) {
+            let blinkPeriod = 180;
+            let blinkRate = 60;
+            if (r * blinkRate % blinkPeriod < (blinkPeriod - 4)) {
+              src_x = blinks[b][4];
+              src_y = blinks[b][5];
+            } else if (r * blinkRate % blinkPeriod < (blinkPeriod - 2)) {
+              src_x = blinks[b][6];
+              src_y = blinks[b][7];
+            } else {
+              src_x = blinks[b][8];
+              src_y = blinks[b][9];
+            }
+            let ww = 4;
+            let pageOffs_x;
+            let pageOffs_y;
+            for (let i = 0; i < 16; i++) {
+              pageOffs_x = (i % 8) * 128;
+              pageOffs_y = Math.floor(i / 8) * 256;
+              let eyeSrc = offscreenCanvasCtx.getImageData(
+                src_x*ww + pageOffs_x,
+                src_y + pageOffs_y,
+                blinks[b][2]*ww,
+                blinks[b][3]
+              );
+              offscreenCanvasCtx.putImageData(
+                eyeSrc,
+                blinks[b][0]*ww + pageOffs_x,
+                blinks[b][1] + pageOffs_y
+              );
+            }
+            canvasTexture.needsUpdate = true;
+          }
+        }
+        requestAnimationFrame(animate);
       }
       animate();
     }
@@ -105,5 +183,8 @@
       loadModel(ix);
     });
   </script>
+  <!--
+    <canvas id="badcanvas" width=1024 height=1024></canvas>
+  -->
 </body>
 </html>
