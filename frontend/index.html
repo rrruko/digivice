@@ -12,9 +12,16 @@
 <body>
   <script type="x-shader/x-vertex" id="vertexshader">
     out vec2 v_uv;
+    uniform bool crunch;
     void main() {
       v_uv = uv;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      if (crunch) {
+        float x = .05;
+        gl_Position.x = round(gl_Position.x/x)*x;
+        gl_Position.y = round(gl_Position.y/x)*x;
+        gl_Position.z = round(gl_Position.z/x)*x;
+      }
     }
   </script>
   <script type="x-shader/x-fragment" id="fragmentshader">
@@ -116,6 +123,19 @@
     let canvasTexture;
     let blinks;
     let shaderMaterial;
+    let monIndex = 0;
+    let doCrunch = false;
+    for (const [key, value] of new URLSearchParams(window.location.search)) {
+      if (key == "mon") {
+        let index = parseInt(value);
+        if (!isNaN(index)) {
+          monIndex = index;
+        }
+      }
+      if (key == "crunch") {
+        doCrunch = true;
+      }
+    }
     function canvasGetTexture(canvas) {
       return new THREE.CanvasTexture(canvas);
     }
@@ -134,6 +154,7 @@
       })
       shaderMaterial = new THREE.ShaderMaterial({
         uniforms: {
+          crunch: { value: doCrunch },
           time: { value: 1.0 },
           monTexture: { value: canvasGetTexture(offscreenCanvas) },
           blinks: {
@@ -280,7 +301,8 @@
       animate();
     }
     let app = Elm.Main.init({
-      node: document.getElementById('myapp')
+      node: document.getElementById('myapp'),
+      flags: { initModel: monIndex }
     });
     app.ports.getModel.subscribe(function(ix) {
       if (!gltfLoader) {

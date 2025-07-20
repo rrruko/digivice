@@ -17,10 +17,10 @@ type alias Model =
   { number : Int
   }
 
-init : () -> (Model, Cmd Msg)
+init : { initModel : Int } -> (Model, Cmd Msg)
 init flags =
-  ( { number = 0 }
-  , getModel 0
+  ( { number = flags.initModel }
+  , getModel flags.initModel
   )
 
 type Msg = Increment | Decrement
