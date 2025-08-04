@@ -1,8 +1,9 @@
 port module Main exposing (..)
 
 import Browser
-import Html exposing (Html, button, div, text)
-import Html.Events exposing (onClick)
+import Html exposing (Html, button, div, text, span, input)
+import Html.Attributes exposing (checked, type_)
+import Html.Events exposing (onClick, onCheck)
 
 main = Browser.element
   { init = init
@@ -12,18 +13,20 @@ main = Browser.element
   }
 
 port getModel : Int -> Cmd msg
+port setCrunch : Bool -> Cmd msg
 
 type alias Model = 
   { number : Int
+  , crunch : Bool
   }
 
-init : { initModel : Int } -> (Model, Cmd Msg)
+init : { initModel : Int, initCrunch: Bool } -> (Model, Cmd Msg)
 init flags =
-  ( { number = flags.initModel }
+  ( { number = flags.initModel, crunch = flags.initCrunch }
   , getModel flags.initModel
   )
 
-type Msg = Increment | Decrement
+type Msg = Increment | Decrement | SetCrunch Bool
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -36,6 +39,10 @@ update msg model =
       ( { model | number = model.number - 1 }
       , getModel (model.number - 1)
       )
+    SetCrunch b ->
+      ( { model | crunch = b }
+      , setCrunch b
+      )
 
 subscriptions : Model -> Sub Msg
 subscriptions _ = Sub.none
@@ -47,4 +54,6 @@ view model =
     [ button [onClick Decrement] [text "-"]
     , div [] [text (String.fromInt model.number)]
     , button [onClick Increment] [text "+"]
+    , span []  [text "crunch"]
+    , input [type_ "checkbox", checked model.crunch, onCheck SetCrunch] []
     ]

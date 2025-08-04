@@ -17,10 +17,10 @@
       v_uv = uv;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       if (crunch) {
-        float x = .05;
-        gl_Position.x = round(gl_Position.x/x)*x;
-        gl_Position.y = round(gl_Position.y/x)*x;
-        gl_Position.z = round(gl_Position.z/x)*x;
+        float c = .05;
+        gl_Position.x = round(gl_Position.x/c)*c;
+        gl_Position.y = round(gl_Position.y/c)*c;
+        //gl_Position.z = round(gl_Position.z/c)*c;
       }
     }
   </script>
@@ -302,7 +302,11 @@
     }
     let app = Elm.Main.init({
       node: document.getElementById('myapp'),
-      flags: { initModel: monIndex }
+      flags: { initModel: monIndex, initCrunch: doCrunch }
+    });
+    app.ports.setCrunch.subscribe(function(b) {
+      doCrunch = b;
+      shaderMaterial.uniforms.crunch.value = b;
     });
     app.ports.getModel.subscribe(function(ix) {
       if (!gltfLoader) {
