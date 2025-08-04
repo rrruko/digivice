@@ -17,7 +17,7 @@
       v_uv = uv;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       if (crunch) {
-        float c = .05;
+        float c = .5;
         gl_Position.x = round(gl_Position.x/c)*c;
         gl_Position.y = round(gl_Position.y/c)*c;
         //gl_Position.z = round(gl_Position.z/c)*c;
@@ -26,9 +26,9 @@
   </script>
   <script type="x-shader/x-fragment" id="fragmentshader">
     // The original materials provided by the GLTF loader correctly handle
-    // the MASK mode transparency, even in tricky cases, but in order to 
+    // the MASK mode transparency, even in tricky cases, but in order to
     // animate blinking we have to replace it with our own custom ShaderMaterial.
-    // However, the default ShaderMaterial does not have the correct alpha 
+    // However, the default ShaderMaterial does not have the correct alpha
     // blending settings; by default, the alpha channel of the fragment shader
     // output is just ignored. Setting transparent = true on the material helps,
     // but does not work consistently, presumably due to polygon sorting issues.
@@ -39,8 +39,8 @@
     // and sets up a shader under the hood that calls discard like we're doing
     // here.
     //
-    // Of course, the most accurate thing would be to do polygon sorting like 
-    // the PSX does and then enable full alpha blending to faithfully 
+    // Of course, the most accurate thing would be to do polygon sorting like
+    // the PSX does and then enable full alpha blending to faithfully
     // represent models like ClearAgumon and Datamon.
     in vec2 v_uv;
     uniform sampler2D monTexture;
@@ -97,10 +97,6 @@
     }
   </script>
   <div id="myapp"></div>
-  <script>
-  let gltfLoader;
-  let loadModel;
-  </script>
   <script async src="https://ga.jspm.io/npm:es-module-shims@1.5.5/dist/es-module-shims.js"></script>
   <script type="importmap">
     {
@@ -112,19 +108,15 @@
   <script type="module">
     import * as THREE from 'three';
     import { GLTFLoader } from '/vendor/GLTFLoader.js';
-    let scene;
-    let assetMixer;
-    let assetClips;
-    let mon;
-    let r;
-    let offscreenCanvas = new OffscreenCanvas(1024, 1024);
-    let offscreenCanvasCtx = offscreenCanvas.getContext("2d");
-    let gotTexture = false;
-    let canvasTexture;
-    let blinks;
-    let shaderMaterial;
+    let r = 0;
     let monIndex = 0;
     let doCrunch = false;
+    let scene;
+
+    let state = {
+      mons: [],
+    };
+
     for (const [key, value] of new URLSearchParams(window.location.search)) {
       if (key == "mon") {
         let index = parseInt(value);
@@ -136,11 +128,12 @@
         doCrunch = true;
       }
     }
-    function canvasGetTexture(canvas) {
-      return new THREE.CanvasTexture(canvas);
-    }
-    function getTexture(gltfScene) {
-      gotTexture = false;
+
+    function convertGltfAssetTexture(gltfScene) {
+      let offscreenCanvas = new OffscreenCanvas(1024, 1024);
+      let offscreenCanvasCtx = offscreenCanvas.getContext("2d");
+
+      let gotTexture = false;
       gltfScene.traverse(function(child) {
         if (child.isMesh) {
           let material = child.material;
@@ -152,42 +145,49 @@
           }
         }
       })
-      shaderMaterial = new THREE.ShaderMaterial({
+
+      let canvasTexture = new THREE.CanvasTexture(offscreenCanvas);
+      canvasTexture.flipY = false;
+      canvasTexture.magFilter = 1003;
+      canvasTexture.minFilter = 1003;
+
+
+      let shaderMaterial = new THREE.ShaderMaterial({
         uniforms: {
           crunch: { value: doCrunch },
           time: { value: 1.0 },
-          monTexture: { value: canvasGetTexture(offscreenCanvas) },
+          monTexture: { value: canvasTexture },
           blinks: {
             value: [
-              { 
+              {
                 dest: new THREE.Vector2(),
                 dim: new THREE.Vector2(),
                 src1: new THREE.Vector2(),
                 src2: new THREE.Vector2(),
                 src3: new THREE.Vector2(),
               },
-              { 
+              {
                 dest: new THREE.Vector2(),
                 dim: new THREE.Vector2(),
                 src1: new THREE.Vector2(),
                 src2: new THREE.Vector2(),
                 src3: new THREE.Vector2(),
               },
-              { 
+              {
                 dest: new THREE.Vector2(),
                 dim: new THREE.Vector2(),
                 src1: new THREE.Vector2(),
                 src2: new THREE.Vector2(),
                 src3: new THREE.Vector2(),
               },
-              { 
+              {
                 dest: new THREE.Vector2(),
                 dim: new THREE.Vector2(),
                 src1: new THREE.Vector2(),
                 src2: new THREE.Vector2(),
                 src3: new THREE.Vector2(),
               },
-              { 
+              {
                 dest: new THREE.Vector2(),
                 dim: new THREE.Vector2(),
                 src1: new THREE.Vector2(),
@@ -200,70 +200,87 @@
         vertexShader: document.getElementById('vertexshader').textContent,
         fragmentShader: document.getElementById('fragmentshader').textContent,
       });
-      canvasTexture = new THREE.CanvasTexture(offscreenCanvas);
-      canvasTexture.flipY = false;
-      canvasTexture.magFilter = 1003;
-      canvasTexture.minFilter = 1003;
-      console.log("canvasTexture");
-      console.log(canvasTexture);
-      gltfScene.traverse(function(child) {
-        if (child.isMesh) {
-          child.material = shaderMaterial;
-        }
-      })
+
+      return {
+        shaderMaterial,
+        canvasTexture,
+      };
     }
-    doStuff();
-    function doStuff() {
+
+    let gltfLoader = new GLTFLoader();
+
+    let mut = 0;
+
+    async function loadModel(scene, monIndex) {
+      await fetch('model/' + monIndex, { cache: "force-cache" }).then(response => {
+        return response.arrayBuffer();
+      }).then(function(buffer) {
+        gltfLoader.parse(
+          buffer,
+          null,
+          function (loadedAsset) {
+            let mon = loadedAsset.scene;
+
+            // find the texture in the gltf asset and convert it into a shader
+            // material
+            let { shaderMaterial, canvasTexture } =
+              convertGltfAssetTexture(mon);
+
+            mon.traverse(function(child) {
+              if (child.isMesh) {
+                child.material = shaderMaterial;
+              }
+            });
+
+            let blinks = loadedAsset.userData.blink;
+            for (let i = 0; i < blinks.length; i++) {
+              // The blink values are in units of pixels, so we have to scale
+              // them to 0-1 using the dimensions of the texture (1024x1024).
+              shaderMaterial.uniforms.blinks.value[i] =
+                {
+                  dest: new THREE.Vector2(blinks[i][0]/1024, blinks[i][1]/1024),
+                  dim: new THREE.Vector2(blinks[i][2]/1024, blinks[i][3]/1024),
+                  src1: new THREE.Vector2(blinks[i][4]/1024, blinks[i][5]/1024),
+                  src2: new THREE.Vector2(blinks[i][6]/1024, blinks[i][7]/1024),
+                  src3: new THREE.Vector2(blinks[i][8]/1024, blinks[i][9]/1024)
+                };
+            }
+
+            let assetMixer = new THREE.AnimationMixer(loadedAsset.scene);
+            assetMixer.clipAction(loadedAsset.animations[0]).play();
+
+            mon.position.x = THREE.MathUtils.randFloat(-6, 6);
+            mon.position.z = THREE.MathUtils.randFloat(-10, 10);
+
+            state.mons.push({
+              asset: mon,
+              position: new THREE.Vector2(0, 0),
+              material: shaderMaterial,
+              r: 0,
+              mixer: assetMixer,
+              aiState: "idle",
+              animations: loadedAsset.animations,
+              stateTime: 0,
+              velocityUp: 0,
+              jumpsLeft: 0,
+            });
+            scene.add(mon);
+          },
+          function (error) {
+            alert(error);
+          }
+        );
+      });
+    }
+
+    function setupThreeJSScene() {
+      console.log("inited scene");
       scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(
-        75,
+        10,
         window.innerWidth / window.innerHeight,
         0.1,
         1000);
-      gltfLoader = new GLTFLoader();
-      loadModel = function(n) {
-        fetch('model/' + n, { cache: "force-cache" }).then(response => {
-          return response.arrayBuffer();
-        }).then(function(buffer) {
-          gltfLoader.parse(
-            buffer,
-            null,
-            function (loadedAsset) {
-              console.log("OK!!!");
-              console.log(loadedAsset);
-              if (mon) {
-                scene.remove(mon);
-              }
-              mon = loadedAsset.scene;
-              console.log(loadedAsset.userData);
-              blinks = loadedAsset.userData.blink;
-              scene.add(mon);
-              getTexture(mon);
-              // The blink values are in units of pixels, so we have to scale
-              // them to 0-1 using the dimensions of the texture (1024x1024).
-              if (shaderMaterial) {
-                for (let i = 0; i < blinks.length; i++) {
-                  shaderMaterial.uniforms.blinks.value[i] = 
-                    {
-                      dest: new THREE.Vector2(blinks[i][0]/1024, blinks[i][1]/1024),
-                      dim: new THREE.Vector2(blinks[i][2]/1024, blinks[i][3]/1024),
-                      src1: new THREE.Vector2(blinks[i][4]/1024, blinks[i][5]/1024),
-                      src2: new THREE.Vector2(blinks[i][6]/1024, blinks[i][7]/1024),
-                      src3: new THREE.Vector2(blinks[i][8]/1024, blinks[i][9]/1024)
-                    };
-                }
-              }
-              assetMixer = new THREE.AnimationMixer(loadedAsset.scene);
-              assetClips = loadedAsset.animations;
-              assetMixer.clipAction(assetClips[0]).play();
-              r = 0;
-            },
-            function (error) {
-              alert(error);
-            }
-          );
-        });
-      }
       const renderer = new THREE.WebGLRenderer({
         alpha: true,
       });
@@ -277,48 +294,183 @@
       const material = new THREE.MeshBasicMaterial({color : 0x00ff00});
       const cube = new THREE.Mesh(geometry, material);
       const light = new THREE.AmbientLight(0xffffff);
+      const planeGeo = new THREE.PlaneGeometry(100, 100);
+      const plane = new THREE.Mesh(planeGeo, material);
+      plane.position.y = 0;
+      plane.rotation.y = 3.1415;
+      plane.rotation.x = 3.1415/2;
+      //scene.add(plane);
       scene.add(light);
       camera.position.y = 0.4;
       const clock = new THREE.Clock();
-      let src_x;
-      let src_y;
       function animate() {
-        if (shaderMaterial) {
-          shaderMaterial.uniforms.monTexture.value = canvasTexture;
-          shaderMaterial.uniforms.time.value = r;
-        }
         let delta = clock.getDelta();
-        camera.position.z = -Math.cos(r*0.4);
-        camera.position.x = -Math.sin(r*0.4);
-        camera.lookAt(0, 0.2, 0);
-        r += delta;
-        cube.rotation.x += 0.01;
-        cube.rotation.y += 0.01;
-        if (assetMixer) assetMixer.update(delta);
+        camera.position.z = -30.0;
+        camera.position.x = 0.0;
+        camera.position.y = 15.0;
+        camera.lookAt(0, 0, 0);
+
+        for (let i = 0; i < state.mons.length; i++) {
+          if (state.mons[i].material) {
+            state.mons[i].material.uniforms.crunch.value = doCrunch;
+            state.mons[i].material.uniforms.time.value = state.mons[i].r;
+            state.mons[i].asset.rotation.y = 0.5 * state.mons[i].r;
+          }
+          if (state.mons[i].mixer) {
+            state.mons[i].mixer.update(delta);
+          }
+          if (state.mons[i].aiState == "jump") {
+            if (state.mons[i].asset.position.y > 0) {
+              state.mons[i].asset.position.y += delta * state.mons[i].velocityUp;
+              state.mons[i].velocityUp -= 15 * delta;
+            }
+            if (state.mons[i].asset.position.y <= 0) {
+              state.mons[i].asset.position.y = 0;
+              state.mons[i].velocityUp = 0;
+              if (state.mons[i].jumpsLeft > 0) {
+                state.mons[i].velocityUp = 2;
+                state.mons[i].jumpsLeft = 0;
+              }
+            }
+          }
+          if (state.mons[i].aiState == "idle") {
+          }
+          if (state.mons[i].aiState == "run") {
+            state.mons[i].r += state.mons[i].heading * 2. * delta;
+            let forward = new THREE.Vector3(0.0, 0.0, -1.0)
+              .applyEuler(state.mons[i].asset.rotation);
+            state.mons[i].asset.position.add(forward.multiplyScalar(1.5 * delta));
+          }
+          state.mons[i].stateTime -= delta;
+
+          // State transition
+          if (state.mons[i].stateTime <= 0) {
+            if (state.mons[i].aiState == "run") {
+              let shouldTransition = THREE.MathUtils.randFloat(0, 1) < 0.6;
+              if (shouldTransition) {
+                state.mons[i].aiState = "idle";
+                state.mons[i].mixer.clipAction(state.mons[i].animations[0]).play();
+                state.mons[i].mixer.clipAction(state.mons[i].animations[1]).stop();
+                state.mons[i].stateTime =
+                  THREE.MathUtils.randFloat(1, 1.5) *
+                  THREE.MathUtils.randFloat(1, 1.5) *
+                  THREE.MathUtils.randFloat(1, 1.5);
+              } else {
+                state.mons[i].mixer.clipAction(state.mons[i].animations[1]).play();
+                state.mons[i].mixer.clipAction(state.mons[i].animations[0]).stop();
+                state.mons[i].stateTime =
+                  THREE.MathUtils.randFloat(1, 2) *
+                  THREE.MathUtils.randFloat(1, 2);
+                state.mons[i].heading = THREE.MathUtils.randFloat(-1, 1);
+              }
+            } else if (state.mons[i].aiState == "idle") {
+              let choice = THREE.MathUtils.randFloat(0, 1);
+              if (choice < 0.1) {
+                state.mons[i].aiState = "jump";
+                state.mons[i].velocityUp = 2;
+                state.mons[i].jumpsLeft = 2;
+                state.mons[i].mixer.clipAction(state.mons[i].animations[0]).play();
+                state.mons[i].mixer.clipAction(state.mons[i].animations[1]).stop();
+                state.mons[i].stateTime = 2;
+              } else if (choice < 0.9) {
+                state.mons[i].aiState = "run";
+                state.mons[i].mixer.clipAction(state.mons[i].animations[1]).play();
+                state.mons[i].mixer.clipAction(state.mons[i].animations[0]).stop();
+                state.mons[i].stateTime =
+                  THREE.MathUtils.randFloat(1, 2) *
+                  THREE.MathUtils.randFloat(1, 2);
+                state.mons[i].heading = THREE.MathUtils.randFloat(-1, 1);
+              }
+            } else if (state.mons[i].aiState == "jump") {
+              if (THREE.MathUtils.randFloat(0, 1) < 0.9) {
+                state.mons[i].aiState = "idle";
+                state.mons[i].mixer.clipAction(state.mons[i].animations[0]).play();
+                state.mons[i].mixer.clipAction(state.mons[i].animations[1]).stop();
+                state.mons[i].stateTime =
+                  THREE.MathUtils.randFloat(1, 1.5) *
+                  THREE.MathUtils.randFloat(1, 1.5) *
+                  THREE.MathUtils.randFloat(1, 1.5);
+              }
+            }
+          }
+
+          let boundX = 6;
+          if (state.mons[i].asset.position.x > boundX) {
+            state.mons[i].asset.position.x = -boundX;
+          } else if (state.mons[i].asset.position.x < -boundX) {
+            state.mons[i].asset.position.x = boundX;
+          }
+
+          let boundZ = 10;
+          if (state.mons[i].asset.position.z > boundZ) {
+            state.mons[i].asset.position.z = -boundZ;
+          } else if (state.mons[i].asset.position.z < -boundZ) {
+            state.mons[i].asset.position.z = boundZ;
+          }
+        }
+
+        // handle collision
+        //
+        // n^2 complexity here is gross
+        //
+        // could use a grid system instead... whenever a monster moves, it
+        // updates the grid with its new position, and then for each monster,
+        // perform collision against monsters in same or neighboring cells
+        //
+        // grid cell width must not be less than the collision radius to ensure
+        // that the monster's bounding circle does not overlap with monsters
+        // outside of the neighboring cells
+        for (let i = 0; i < state.mons.length; i++) {
+          for (let j = i + 1; j < state.mons.length; j++) {
+            let collisionRadius = 0.5;
+            let dist = state.mons[i].asset.position.clone()
+              .sub(state.mons[j].asset.position);
+            if (dist.length() < collisionRadius) {
+              let push = dist.clone().normalize()
+                .multiplyScalar(collisionRadius)
+                .sub(dist);
+              state.mons[i].asset.position.add(push.clone().multiplyScalar(0.5));
+              state.mons[j].asset.position.add(push.clone().multiplyScalar(-0.5));
+            }
+          }
+        }
+
         renderer.render(scene, camera);
         requestAnimationFrame(animate);
       }
       animate();
     }
-    let app = Elm.Main.init({
-      node: document.getElementById('myapp'),
-      flags: { initModel: monIndex, initCrunch: doCrunch }
-    });
-    app.ports.setCrunch.subscribe(function(b) {
-      doCrunch = b;
-      shaderMaterial.uniforms.crunch.value = b;
-    });
-    app.ports.getModel.subscribe(function(ix) {
-      if (!gltfLoader) {
-        alert("GLTF loader not yet ready");
-        return;
+
+    setupThreeJSScene();
+
+    //let app = Elm.Main.init({
+    //  node: document.getElementById('myapp'),
+    //  flags: { initModel: monIndex, initCrunch: doCrunch }
+    //});
+
+    //app.ports.setCrunch.subscribe(function(b) {
+    //  doCrunch = b;
+    //});
+
+    //app.ports.getModel.subscribe(async function(ix) {
+    //  if (!gltfLoader) {
+    //    alert("GLTF loader not yet ready");
+    //    return;
+    //  }
+    //  if (!loadModel) {
+    //    alert("loadModel not yet ready");
+    //    return;
+    //  }
+    //  for (let i = 203; i < 260; i++) {
+    //    await loadModel(scene, i);
+    //  }
+    //});
+    for (let i = 203; i < 278; i++) {
+      if (i >= 264 && i < 268) {
+        continue;
       }
-      if (!loadModel) {
-        alert("loadModel not yet ready");
-        return;
-      }
-      loadModel(ix);
-    });
+      await loadModel(scene, i);
+    }
   </script>
 </body>
 </html>
