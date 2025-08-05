@@ -263,6 +263,8 @@
               stateTime: 0,
               velocityUp: 0,
               jumpsLeft: 0,
+              speed: THREE.MathUtils.randFloat(0.75, 1.25),
+              energy: THREE.MathUtils.randFloat(0.75, 1.25),
             });
             scene.add(mon);
           },
@@ -317,7 +319,7 @@
             state.mons[i].asset.rotation.y = 0.5 * state.mons[i].r;
           }
           if (state.mons[i].mixer) {
-            state.mons[i].mixer.update(delta);
+            state.mons[i].mixer.update(delta * state.mons[i].speed);
           }
           if (state.mons[i].aiState == "jump") {
             if (state.mons[i].asset.position.y > 0) {
@@ -339,7 +341,9 @@
             state.mons[i].r += state.mons[i].heading * 2. * delta;
             let forward = new THREE.Vector3(0.0, 0.0, -1.0)
               .applyEuler(state.mons[i].asset.rotation);
-            state.mons[i].asset.position.add(forward.multiplyScalar(1.5 * delta));
+            state.mons[i].asset.position.add(
+              forward.multiplyScalar(state.mons[i].energy * 1.5 * delta)
+            );
           }
           state.mons[i].stateTime -= delta;
 
@@ -352,6 +356,7 @@
                 state.mons[i].mixer.clipAction(state.mons[i].animations[0]).play();
                 state.mons[i].mixer.clipAction(state.mons[i].animations[1]).stop();
                 state.mons[i].stateTime =
+                  (1/state.mons[i].energy) *
                   THREE.MathUtils.randFloat(1, 1.5) *
                   THREE.MathUtils.randFloat(1, 1.5) *
                   THREE.MathUtils.randFloat(1, 1.5);
@@ -377,6 +382,7 @@
                 state.mons[i].mixer.clipAction(state.mons[i].animations[1]).play();
                 state.mons[i].mixer.clipAction(state.mons[i].animations[0]).stop();
                 state.mons[i].stateTime =
+                  state.mons[i].energy *
                   THREE.MathUtils.randFloat(1, 2) *
                   THREE.MathUtils.randFloat(1, 2);
                 state.mons[i].heading = THREE.MathUtils.randFloat(-1, 1);
