@@ -101,21 +101,92 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "https://unpkg.com/three@0.140.2/build/three.module.js"
+        "three": "https://unpkg.com/three@0.140.2/build/three.module.js",
+        "dat.gui": "https://unpkg.com/dat.gui@0.7.7/build/dat.gui.module.js"
       }
     }
   </script>
   <script type="module">
     import * as THREE from 'three';
+    import * as dat from 'dat.gui';
     import { GLTFLoader } from '/vendor/GLTFLoader.js';
+    import { OrbitControls } from '/vendor/OrbitControls.js';
     let r = 0;
     let monIndex = 0;
     let doCrunch = false;
     let scene;
+    let boundX = 2;
+    let boundZ = 4;
+    let cameraQuaternion = null;
+    let cameraPosition = null;
 
     let state = {
       mons: [],
     };
+
+    function encodeVector3(p) {
+      return ""
+        + p.x.toFixed(2) + "x"
+        + p.y.toFixed(2) + "y"
+        + p.z.toFixed(2) + "z";
+    }
+
+    function parseVector3(s) {
+      let parts = s.split("x");
+      if (parts.length != 2) {
+        throw new Error("parseVector3: expected x component");
+      }
+      let x = parseFloat(parts[0]);
+      parts = parts[1].split("y");
+      if (parts.length != 2) {
+        throw new Error("parseVector3: expected y component");
+      }
+      let y = parseFloat(parts[0]);
+      parts = parts[1].split("z");
+      if (parts.length != 2) {
+        throw new Error("parseVector3: expected z component");
+      }
+      let z = parseFloat(parts[0]);
+      if (parts[1] != "") {
+        throw new Error("parseVector3: extra input");
+      }
+      return new THREE.Vector3(x, y, z);
+    }
+
+    function encodeQuaternion(q) {
+      return ""
+        + q.x.toFixed(2) + "i"
+        + q.y.toFixed(2) + "j"
+        + q.z.toFixed(2) + "k"
+        + q.w.toFixed(2) + "w";
+    }
+
+    function parseQuaternion(s) {
+      let parts = s.split("i");
+      if (parts.length != 2) {
+        throw new Error("parseQuaternion: expected i component");
+      }
+      let i = parseFloat(parts[0]);
+      parts = parts[1].split("j");
+      if (parts.length != 2) {
+        throw new Error("parseQuaternion: expected j component");
+      }
+      let j = parseFloat(parts[0]);
+      parts = parts[1].split("k");
+      if (parts.length != 2) {
+        throw new Error("parseQuaternion: expected k component");
+      }
+      let k = parseFloat(parts[0]);
+      parts = parts[1].split("w");
+      if (parts.length != 2) {
+        throw new Error("parseQuaternion: expected w component");
+      }
+      let w = parseFloat(parts[0]);
+      if (parts[1] != "") {
+        throw new Error("parseQuaternion: extra input");
+      }
+      return new THREE.Quaternion(i, j, k, w);
+    }
 
     for (const [key, value] of new URLSearchParams(window.location.search)) {
       if (key == "mon") {
@@ -126,6 +197,26 @@
       }
       if (key == "crunch") {
         doCrunch = true;
+      }
+      if (key == "boundX") {
+        boundX = parseInt(value);
+      }
+      if (key == "boundZ") {
+        boundZ = parseInt(value);
+      }
+      if (key == "cameraQ") {
+        try {
+          cameraQuaternion = parseQuaternion(value);
+        } catch (e) {
+          console.log("couldn't parse camera quaternion config: ", e);
+        }
+      }
+      if (key == "cameraP") {
+        try {
+          cameraPosition = parseVector3(value);
+        } catch (e) {
+          console.log("couldn't parse camera position config: ", e);
+        }
       }
     }
 
@@ -252,6 +343,12 @@
             mon.position.x = THREE.MathUtils.randFloat(-6, 6);
             mon.position.z = THREE.MathUtils.randFloat(-10, 10);
 
+            // Assign index to all children so that we can find the mon in the
+            // state after raycasting
+            mon.traverse((x) => {
+              x.userData.ix = state.mons.length;
+            });
+
             state.mons.push({
               asset: mon,
               position: new THREE.Vector2(0, 0),
@@ -275,11 +372,45 @@
       });
     }
 
+    function transitionStateToIdle(mon) {
+      mon.aiState = "idle";
+      mon.mixer.clipAction(mon.animations[0]).play();
+      mon.mixer.clipAction(mon.animations[1]).stop();
+      mon.stateTime =
+        (1/mon.energy) *
+        THREE.MathUtils.randFloat(1, 1.5) *
+        THREE.MathUtils.randFloat(1, 1.5) *
+        THREE.MathUtils.randFloat(1, 1.5);
+    }
+
+    function transitionStateToRun(mon) {
+      mon.aiState = "run";
+      mon.mixer.clipAction(mon.animations[1]).play();
+      mon.mixer.clipAction(mon.animations[0]).stop();
+      mon.stateTime =
+        mon.energy *
+        THREE.MathUtils.randFloat(1, 2) *
+        THREE.MathUtils.randFloat(1, 2);
+      mon.heading = THREE.MathUtils.randFloat(-1, 1);
+    }
+
+    function transitionStateToJump(mon) {
+      if (mon.aiState != "jump") {
+        mon.aiState = "jump";
+        mon.velocityUp = 2;
+        mon.jumpsLeft = 1;
+        mon.jumping = true;
+        mon.mixer.clipAction(mon.animations[0]).play();
+        mon.mixer.clipAction(mon.animations[1]).stop();
+        mon.stateTime = 3;
+      }
+    }
+
     function setupThreeJSScene() {
       console.log("inited scene");
       scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(
-        10,
+        45,
         window.innerWidth / window.innerHeight,
         0.1,
         1000);
@@ -305,12 +436,99 @@
       scene.add(light);
       camera.position.y = 0.4;
       const clock = new THREE.Clock();
+
+      let raycaster = new THREE.Raycaster();
+      let pointer = new THREE.Vector2();
+
+      window.addEventListener("click", (e) => {
+        pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+        pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(pointer, camera);
+        const intersects = raycaster.intersectObjects(scene.children);
+        console.log(pointer);
+        for (let i = 0; i < intersects.length; i++) {
+          let hit = intersects[i].object;
+          transitionStateToJump(state.mons[hit.userData.ix]);
+        }
+      });
+
+      //let isMouseDown = false;
+
+      //window.addEventListener("mousedown", (e) => {
+      //  isMouseDown = true;
+      //});
+
+      //window.addEventListener("mouseup", (e) => {
+      //  isMouseDown = false;
+      //});
+
+      //window.addEventListener("mousemove", (e) => {
+      //  if (isMouseDown) {
+      //    let eu = new THREE.Euler(e.movementX, e.movementY, 0);
+      //    let q = new THREE.Quaternion();
+      //    q.setFromEuler(eu);
+      //    camera.
+      //  }
+      //});
+
+      camera.position.z = -30.0;
+      camera.position.x = 0.0;
+      camera.position.y = 15.0;
+      camera.lookAt(0, 0, 0);
+
+      let controls = new OrbitControls(camera, renderer.domElement);
+
+      if (cameraQuaternion != null) {
+        console.log("loaded camera quaternion from url params");
+        camera.setRotationFromQuaternion(cameraQuaternion);
+        controls.update();
+      }
+      if (cameraPosition != null) {
+        console.log("loaded camera position from url params");
+        camera.position.copy(cameraPosition);
+        controls.update();
+      }
+
+      //if (
+
+      let guiState = {
+        //q_i: 0.0,
+        //q_j: 0.0,
+        //q_k: 0.0,
+        //q_w: 1.0,
+        //normalize: function() {
+        //  let q = new THREE.Quaternion(q_i, q_j, q_k, q_w);
+        //  q.normalize();
+        //  q_i = q.x;
+        //  q_j = q.y;
+        //  q_k = q.z;
+        //  w_w = q.w;
+        //},
+        boundX: 2,
+        boundZ: 2,
+        exportCamera: function() {
+          let baseUrl = window.location.origin;
+          let p = encodeVector3(camera.position);
+          let q = encodeQuaternion(camera.quaternion);
+          let bX = boundX.toFixed(2);
+          let bZ = boundZ.toFixed(2);
+          let newPageUrl =
+          `${baseUrl}?cameraP=${p}&cameraQ=${q}&boundX=${bX}&boundZ=${bZ}`; 
+          alert("copied url to clipboard");
+          navigator.clipboard
+            .writeText(newPageUrl);
+        }
+      };
+      // Creating a GUI with options.
+      let gui = new dat.GUI({name: 'My GUI'});
+      gui.add(guiState, 'boundX', 1, 10, 0.1)
+        .onChange(function() { boundX = this.getValue() });
+      gui.add(guiState, 'boundZ', 1, 10, 0.1)
+        .onChange(function() { boundZ = this.getValue() });
+      gui.add(guiState, 'exportCamera');
+
       function animate() {
         let delta = clock.getDelta();
-        camera.position.z = -30.0;
-        camera.position.x = 0.0;
-        camera.position.y = 15.0;
-        camera.lookAt(0, 0, 0);
 
         for (let i = 0; i < state.mons.length; i++) {
           if (state.mons[i].material) {
@@ -321,23 +539,37 @@
           if (state.mons[i].mixer) {
             state.mons[i].mixer.update(delta * state.mons[i].speed);
           }
-          if (state.mons[i].aiState == "jump") {
-            if (state.mons[i].asset.position.y > 0) {
-              state.mons[i].asset.position.y += delta * state.mons[i].velocityUp;
-              state.mons[i].velocityUp -= 15 * delta;
-            }
-            if (state.mons[i].asset.position.y <= 0) {
-              state.mons[i].asset.position.y = 0;
-              state.mons[i].velocityUp = 0;
-              if (state.mons[i].jumpsLeft > 0) {
-                state.mons[i].velocityUp = 2;
-                state.mons[i].jumpsLeft = 0;
-              }
+
+          if (state.mons[i].jumping) {
+            state.mons[i].asset.position.y += delta * state.mons[i].velocityUp;
+            state.mons[i].velocityUp -= 15 * delta;
+          } else {
+            state.mons[i].asset.position.y = 0;
+            state.mons[i].velocityUp = 0;
+          }
+
+          if (state.mons[i].asset.position.y <= 0 && state.mons[i].velocityUp < 0) {
+            state.mons[i].asset.position.y = 0;
+            state.mons[i].velocityUp = 0;
+            if (state.mons[i].jumpsLeft > 0) {
+              state.mons[i].jumpsLeft -= 1;
+              state.mons[i].velocityUp = 2;
+              state.mons[i].jumping = true;
+            } else {
+              state.mons[i].jumping = false;
             }
           }
+
           if (state.mons[i].aiState == "idle") {
+            if (state.mons[i].asset.position.y != 0) {
+              console.log("uh oh");
+            }
           }
+
           if (state.mons[i].aiState == "run") {
+            if (state.mons[i].asset.position.y != 0) {
+              console.log("uh oh");
+            }
             state.mons[i].r += state.mons[i].heading * 2. * delta;
             let forward = new THREE.Vector3(0.0, 0.0, -1.0)
               .applyEuler(state.mons[i].asset.rotation);
@@ -345,74 +577,57 @@
               forward.multiplyScalar(state.mons[i].energy * 1.5 * delta)
             );
           }
+
           state.mons[i].stateTime -= delta;
+
+          if (state.mons[i].aiState == "jump") {
+            if (state.mons[i].jumping) {
+              state.mons[i].stateTime = 100;
+            } else {
+              state.mons[i].stateTime = 0;
+            }
+          }
 
           // State transition
           if (state.mons[i].stateTime <= 0) {
             if (state.mons[i].aiState == "run") {
-              let shouldTransition = THREE.MathUtils.randFloat(0, 1) < 0.6;
-              if (shouldTransition) {
-                state.mons[i].aiState = "idle";
-                state.mons[i].mixer.clipAction(state.mons[i].animations[0]).play();
-                state.mons[i].mixer.clipAction(state.mons[i].animations[1]).stop();
-                state.mons[i].stateTime =
-                  (1/state.mons[i].energy) *
-                  THREE.MathUtils.randFloat(1, 1.5) *
-                  THREE.MathUtils.randFloat(1, 1.5) *
-                  THREE.MathUtils.randFloat(1, 1.5);
+              let choice = THREE.MathUtils.randFloat(0, 1);
+              if (choice < 0.6) {
+                transitionStateToIdle(state.mons[i]);
               } else {
-                state.mons[i].mixer.clipAction(state.mons[i].animations[1]).play();
-                state.mons[i].mixer.clipAction(state.mons[i].animations[0]).stop();
-                state.mons[i].stateTime =
-                  THREE.MathUtils.randFloat(1, 2) *
-                  THREE.MathUtils.randFloat(1, 2);
-                state.mons[i].heading = THREE.MathUtils.randFloat(-1, 1);
+                transitionStateToRun(state.mons[i]);
               }
             } else if (state.mons[i].aiState == "idle") {
               let choice = THREE.MathUtils.randFloat(0, 1);
-              if (choice < 0.1) {
-                state.mons[i].aiState = "jump";
-                state.mons[i].velocityUp = 2;
-                state.mons[i].jumpsLeft = 2;
-                state.mons[i].mixer.clipAction(state.mons[i].animations[0]).play();
-                state.mons[i].mixer.clipAction(state.mons[i].animations[1]).stop();
-                state.mons[i].stateTime = 2;
-              } else if (choice < 0.9) {
-                state.mons[i].aiState = "run";
-                state.mons[i].mixer.clipAction(state.mons[i].animations[1]).play();
-                state.mons[i].mixer.clipAction(state.mons[i].animations[0]).stop();
-                state.mons[i].stateTime =
-                  state.mons[i].energy *
-                  THREE.MathUtils.randFloat(1, 2) *
-                  THREE.MathUtils.randFloat(1, 2);
-                state.mons[i].heading = THREE.MathUtils.randFloat(-1, 1);
+              if (choice < 0.2) {
+                transitionStateToIdle(state.mons[i]);
+              } else {
+                transitionStateToRun(state.mons[i]);
               }
             } else if (state.mons[i].aiState == "jump") {
-              if (THREE.MathUtils.randFloat(0, 1) < 0.9) {
-                state.mons[i].aiState = "idle";
-                state.mons[i].mixer.clipAction(state.mons[i].animations[0]).play();
-                state.mons[i].mixer.clipAction(state.mons[i].animations[1]).stop();
-                state.mons[i].stateTime =
-                  THREE.MathUtils.randFloat(1, 1.5) *
-                  THREE.MathUtils.randFloat(1, 1.5) *
-                  THREE.MathUtils.randFloat(1, 1.5);
+              let choice = THREE.MathUtils.randFloat(0, 1);
+              if (choice < 0.5) {
+                transitionStateToRun(state.mons[i]);
+              } else {
+                transitionStateToIdle(state.mons[i]);
               }
             }
           }
 
-          let boundX = 6;
-          if (state.mons[i].asset.position.x > boundX) {
-            state.mons[i].asset.position.x = -boundX;
-          } else if (state.mons[i].asset.position.x < -boundX) {
-            state.mons[i].asset.position.x = boundX;
-          }
+          // torus
+          // let boundX = 6;
+          // if (state.mons[i].asset.position.x > boundX) {
+          //   state.mons[i].asset.position.x = -boundX;
+          // } else if (state.mons[i].asset.position.x < -boundX) {
+          //   state.mons[i].asset.position.x = boundX;
+          // }
 
-          let boundZ = 10;
-          if (state.mons[i].asset.position.z > boundZ) {
-            state.mons[i].asset.position.z = -boundZ;
-          } else if (state.mons[i].asset.position.z < -boundZ) {
-            state.mons[i].asset.position.z = boundZ;
-          }
+          // let boundZ = 10;
+          // if (state.mons[i].asset.position.z > boundZ) {
+          //   state.mons[i].asset.position.z = -boundZ;
+          // } else if (state.mons[i].asset.position.z < -boundZ) {
+          //   state.mons[i].asset.position.z = boundZ;
+          // }
         }
 
         // handle collision
@@ -438,6 +653,20 @@
               state.mons[i].asset.position.add(push.clone().multiplyScalar(0.5));
               state.mons[j].asset.position.add(push.clone().multiplyScalar(-0.5));
             }
+          }
+        }
+
+        for (let i = 0 ; i < state.mons.length; i++) {
+          // keep inside bounds
+          if (state.mons[i].asset.position.x > boundX) {
+            state.mons[i].asset.position.x = boundX;
+          } else if (state.mons[i].asset.position.x < -boundX) {
+            state.mons[i].asset.position.x = -boundX;
+          }
+          if (state.mons[i].asset.position.z > boundZ) {
+            state.mons[i].asset.position.z = boundZ;
+          } else if (state.mons[i].asset.position.z < -boundZ) {
+            state.mons[i].asset.position.z = -boundZ;
           }
         }
 
